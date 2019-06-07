@@ -263,9 +263,14 @@ def markov_chain(cgm, profile):
     
     return G
 
-def expected_outcome_statebased(profile):
+def expected_outcome_statebased(cgm, profile):
     """Outputs the expected value of a profile of state-based 
     mixed strategies."""
+    
+    chain = markov_chain(cgm,profile)
+    connected_components = nx.algorithms.strongly_connected_components(chain)
+    
+    
     # TODO: Find attracting, irreducible subchains
     
     # TODO: Calculate expected value 
