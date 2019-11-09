@@ -1,10 +1,9 @@
 """
-games - A module for calculations on games, using numpy.
+games - A module for calculations on games, using numpy and networkx.
 """
 
 __version__ = '0.1'
 __author__ = 'Daniel Ahlsén'
-
 import numpy as np
 import networkx as nx
 from itertools import groupby
@@ -51,10 +50,8 @@ class ConcurrentGameModel:
         Keyword arguments
         transitions -- a list of transition matrices
         init -- the initial state (default 0)
-        """
-
-        # Convert transition matrices to integer ndarrays
-        self.transitions = np.array(transitions,dtype='int16')
+        
+        TODO: Fix tests
         
         # Check that all dimensions match
         dims = map(lambda x : np.ndim(x), self.transitions)
@@ -65,16 +62,16 @@ class ConcurrentGameModel:
         for matrix in self.transitions:
             if any(n < 0 or n >= len(transitions) for n in np.nditer(matrix)):
                 raise ValueError("All transitions must be to other states.")
-
+        """
         self.states = range(len(transitions))
         self.cstate = init
         self.transitions = transitions
         
-        self.players = np.ndim(transitions[0])
+        self.players = np.ndim(self.transitions[0])
         self.shistory = []
         self.mhistory = []
         
-    def make_move(self, move):
+    def move(self, move):
         """
         Make a move and add outcome to histories
         
@@ -102,23 +99,30 @@ class GuardedConcurrentGameModelPayoffs(ConcurrentGameModel):
     A Guarded Concurrent Game Model with Payoffs is a Concurrent Game Model 
     (CGM) with a strategic game in each state.
     """
-    def __init__(self, transitions, payoffs, guards=[], init=0):
+    def __init__(self, transitions, payoffs, guards=None, init=0, config=None):
         
         ConcurrentGameModel.__init__(self, transitions, init)
         self.games = [ Game(mat) for mat in payoffs ]
-        
+        """
         for i in range(len(payoffs)):
-            if games[i].shape[:-1] != transitions[i]:
-                raise ArgumentError()
-            if games[i].players != transitions[i].ndim:
-                raise ArgumentError()
-        
+            if self.games[i].shape[:-1] != transitions[i]:
+                raise ValueError()
+            if self.games[i].players != transitions[i].ndim:
+                raise ValueError()
+        """
         self.phistory = []
-        self.guards = guards
+        if guards == None:
+            self.guards = {}
         
-    def make_move(self,move):
-        self.phistory.append(games[self.cstate].outcome(move))
-        ConcurrentGameModel.make_move(self,move)
+        if config == None:
+            self.config = np.zeros(self.players)
+        else:
+            self.config = np.array(config)
+        
+    def move(self,move):
+        self.phistory.append( self.games[self.cstate].outcome(move) )
+        self.config += self.games[self.cstate].outcome(move)
+        ConcurrentGameModel.move(self,move)
         
     def reset(self,init=0):
         self.phistory = []
@@ -127,8 +131,16 @@ class GuardedConcurrentGameModelPayoffs(ConcurrentGameModel):
     def __str__(self):
         txt = ConcurrentGameModel.__str__(self)
         txt += "Payoff history: " + str(self.phistory) + "\n"
+        txt += "Current configuration: " + str(self.config) + "\n"
         return txt
-
+    
+    def checkMove(self, move):
+        for i in range(players):
+            if move[i] in self.guards[self.cstate][i].keys():
+                check.append(self.guards[self.cstate][i][move[i]](self.config))
+        
+        if any(check) is False:
+            raise ValueError("The move is not available.")
 ##############
 # STRATEGIES #
 ##############
@@ -202,6 +214,23 @@ class MixedStateBasedStrategy:
             self.cstate = 0
             raise StopIteration
 
+
+##########
+# GUARDS #
+##########
+    
+class Guard():
+    """
+    A guard in a GCGMP.
+    """
+    def __init__(self, state, player, action, formula):
+        self.state = state
+        self.player = player
+        self.action = action
+        self.formula = formula
+        
+    def __call__(self,x):
+        return self.formula(x)
 #############
 # FUNCTIONS #
 #############
@@ -266,15 +295,11 @@ def markov_chain(cgm, profile):
 def expected_outcome_statebased(cgm, profile):
     """Outputs the expected value of a profile of state-based 
     mixed strategies."""
-    
+    # TODO: Find attracting, irreducible subchains
+    # TODO: Calculate expected value 
     chain = markov_chain(cgm,profile)
     connected_components = nx.algorithms.strongly_connected_components(chain)
-    
-    
-    # TODO: Find attracting, irreducible subchains
-    
-    # TODO: Calculate expected value 
-    
+       
 def all_equal(iterable):
     """Returns True if all the elements are equal to each other"""
     g = groupby(iterable)
