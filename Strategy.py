@@ -1,42 +1,12 @@
+import numpy as np
+import networkx as nx
+import intervals as I
+
 ##############
 # STRATEGIES #
 ##############
 
-class MixedStrategy:
-    """
-    MixedStrategy
-
-    Represents a mixed strategy as a n-dimensional ndarray with non-negative
-    entries that sum to 1.
-    """
-    def __init__(self, dist):
-        self.dist = np.array(dist)
-
-        for v in self.dist:
-            if v < 0:
-                raise ValueError("Entries must be non-negative.")
-
-        self.cumm = np.zeros(len(self.dist)+1)
-        for index in range(len(self.cumm)-1):
-            self.cumm[index+1] = self.cumm[index]+self.dist[index]
-        self.cumm[-1] = 1.0
-
-    def __call__(self):
-        """Returns an outcome from the mixed strategy"""
-
-        t = np.random.random()
-        return np.searchsorted(self.cumm, t)-1
-
-    def __str__(self):
-        return str(self.dist)
-
-    def __len__(self):
-        return len(self.dist)
-
-    def __getitem__(self,key):
-        return self.dist[key]
-
-class StateBasedStrategy:
+class StateStrategy:
 
     def __init__(self, transitions):
         self.transitions = np.array(transitions,dtype='int16')
@@ -48,40 +18,125 @@ class StateBasedStrategy:
     def __getitem__(self,key):
         return self.transitions[key]
 
-class MixedStateBasedStrategy:
-    def __init__(self,strategies):
-        if any(type(s) != MixedStrategy for s in strategies):
-            raise TypeError()
+class Segmentation:
+    """A segmentation is a finite collection of disjoint intervals which cover
+    the real line. It is specified by a sorted list of distinct real numbers,
+    and a list of delimiters which specifies the open and closedness of
+    intervals.
+
+    TODO: Make it possible for a Segmentation to be empty.
+
+    Parameters
+    ----------
+    points : array
+        Points of the segmentation.
+    delimiters : array
+        Delimiters determine whether the point number i is included in the left or
+        the right segment, relative to the point. 0 means left, 1 means right.
+    """
+    def __init__(self,points,delimiters):
+        """Initializes a Segmentation. Checks that
+
+        Parameters
+        ----------
+        points : array
+            Points of the segmentation.
+        delimiters : array
+            Delimiters determine whether the point number i is included in the left or
+            the right segment, relative to the point. 0 means left, 1 means right.
+
+        Returns
+        -------
+        type
+            None
+
+        """
+        if len(delimiters) != len(points):
+            raise ValueError("Numbers of delimiters equal the number of points.")
+        for i in range(len(points)-1):
+            if points[i+1] <= points[i]:
+                raise ValueError("Array must be sorted and points distinct.")
+            if delimiters[i] not in {0,1}:
+                raise ValueError("Delimiters must be 0 or 1.")
+
+        if delimiters[-1] not in {0,1}:
+                raise ValueError("Delimiters must be 0 or 1.")
+
+        self.points = points
+        self.delimiters = delimiters
+
+    def __call__(self,x):
+        i = 0
+        while i < len(self.delimiters):
+            if self.delimiters[i] == 0 and not self.points[i] < x:
+                return i
+            elif self.delimiters[i] == 1 and not self.points[i] <= x:
+                return i
+            else:
+                i += 1
+
+        return i
+
+    def __len__(self):
+        return len(self.points)+1
+
+    def __str__(self):
+        string = '(-inf,'
+        for i in range(len(self.delimiters)):
+            string += str(self.points[i])
+            if self.delimiters[i] == 0:
+                string += ']('
+            else:
+                string += ')['
+            string += str(self.points[i]) + ','
+        string += 'inf)'
+        return string
+
+class SegmentationStrategy(Segmentation):
+    """A SegmentationStrategy extends Segmentations by assigning each segment
+    in a Segmentation an action.
+
+    TODO: Make it possible to enter segmentation directly, without creating
+    the Segmentation object.
+
+    Parameters
+    ----------
+    segmentation : Segmentation
+        a segmentation that
+    actions : array
+        An array of actions. May contain anything, but the length must match
+        the length of the Segmentation.
+
+    Attributes
+    ----------
+    actions : array
+        the action for each segment in the segmentation.
+
+    """
+
+
+    def __init__(self,segmentation,actions):
+        if type(segmentation) is not Segmentation:
+            raise ValueError("First argument is not a Segmentation.")
+        if len(segmentation) != len(actions):
+            raise ValueError("Number of actions must match number of segments.")
+
+        super().__init__(segmentation.points,segmentation.delimiters)
+        self.actions = actions
+
+    def __call__(self,x):
+        return self.actions[super().__call__(x)]
+
+class StateSegmentationStrategy:
+
+    def __init__(self,states,strategies):
+
+        if states != len(strategies):
+            raise ValueError("Number of strategies must match the number of states.")
+        if any( [ type(s) is not SegmentationStrategy for s in strategies ] ):
+            raise ValueError("Strategies must be SegmentationStrategy.")
 
         self.strategies = strategies
-        self.states = len(strategies)
-        self.cstate = 0
 
-    def __getitem__(self,key):
-        return self.strategies[key]
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        self.cstate += 1
-        if self.cstate <= self.states:
-            return self.strategies[self.cstate-1]
-        else:
-            self.cstate = 0
-            raise StopIteration
-
-#############
-# FUNCTIONS #
-#############
-
-def expected_outcome(profile):
-    """Calculates the outcome probability, given a mixed strategy profile."""
-    shape = list(map(lambda x : len(x), profile))
-    outcome = profile[0].dist
-
-    for i in range(len(shape)-1):
-        outcome = outcome.reshape(shape[0:i+1]+[1])
-        outcome = outcome*profile[i+1].dist
-
-    return outcome
+    def __call__(self,state,x):
+        return self.strategies[state](x)
