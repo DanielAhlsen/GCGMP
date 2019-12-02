@@ -14,43 +14,38 @@ class niter:
         else:
             self.fixed_indices = fixed_indices
 
-
         self.size = len(shape)
-        self.cstate = [ 0 for x in shape ]
-        self.shape = list(shape)
-        for index in self.fixed_indices:
-            self.shape.pop(index)
-            self.cstate.pop(index)
+        self.shape = [ shape[i] for i in range(self.size) if i not in self.fixed_indices]
+        self.output = [ 0 for _ in range(self.size)]
+        self.moving_indices = list(range(self.size))
+        counter = 0
+        for i in self.fixed_indices:
+            self.output[i] = self.fixed_values[counter]
+            self.moving_indices.remove(i)
+            counter += 1
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        # create output vector
-        output = [ 0 for i in range(self.size)]
-        counter = 0
-        for index in range(self.size):
-            if index in self.fixed_indices:
-                output[index] = self.fixed_values[index]
-                counter += 1
-            else:
-                output[index] = self.cstate[index-counter]
 
+        output = self.output
         # update counter
+
         i = 0
         while i < len(self.shape):
             #find smallest index that may be increased
-            if(self.cstate[i]+1 < self.shape[i]):
-                self.cstate[i] += 1 #increase index
+            if(self.output[self.moving_indices[i]] < self.shape[i]-1):
+                self.output[self.moving_indices[i]] += 1
                 i -= 1
                 while i >= 0: #set every index below that to 0
-                    self.cstate[i] = 0
+                    self.output[self.moving_indices[i]] = 0
                     i -= 1
                 return tuple(output)
             i += 1
         # fix an off-by-one error
-        if self.cstate[i-1] == self.shape[i-1]-1:
-            self.cstate[i-1] += 1
+        if self.output[self.moving_indices[i-1]]-1 == self.shape[i-1]:
+            self.output[self.moving_indices[i-1]] += 1
             return tuple(output)
         else:
             raise StopIteration
